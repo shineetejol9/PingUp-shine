@@ -414,9 +414,6 @@ The Music Lounge overrides these with **per-track dynamic gradients** based on t
 
 ## 👨‍💻 Built By
 
-| Name | Role |
-| ---- | ---- |
-
 | \*\*Sabeena
 
 ---
