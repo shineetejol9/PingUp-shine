@@ -63,6 +63,10 @@ export default function MessageList({
 
   const pinnedMessages = messages.filter(m => m.pinned && !m.deleted);
 
+  const mainMessages = messages.filter(
+  (msg) => !msg.parentMessageId
+);
+
   return (
     <div className="msg-list">
 
@@ -145,7 +149,7 @@ export default function MessageList({
 
       {/* ── Messages ── */}
       <div className="msg-messages-wrap">
-        {messages.map(msg => (
+        {mainMessages.map(msg => (
           <div
             key={msg.id}
             className={`msg-row ${msg.deleted ? 'msg-deleted' : ''} ${msg.pinned && !msg.deleted ? 'msg-is-pinned' : ''}`}

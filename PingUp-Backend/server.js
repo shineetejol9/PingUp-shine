@@ -662,14 +662,21 @@ io.on('connection', async (socket) => {
         socket.emit('room:history', {
             roomName,
             messages: history.reverse().map(m => ({
-                id: m._id.toString(), userId: m.userId.toString(),
-                username: m.username, role: m.role, text: m.text,
-                timestamp: m.createdAt, deleted: m.deleted,
-                pinned: pinnedIds.includes(m._id.toString()),
-                editedAt: m.editedAt,
-                editHistory: m.editHistory,
-            })),
-            roomSettings: roomToChannel(room),
+    id: m._id.toString(),
+    userId: m.userId.toString(),
+    username: m.username,
+    role: m.role,
+    text: m.text,
+    timestamp: m.createdAt,
+    deleted: m.deleted,
+    pinned: pinnedIds.includes(m._id.toString()),
+    editedAt: m.editedAt,
+    editHistory: m.editHistory,
+
+    // THREAD FIX
+    parentMessageId: m.parentMessageId,
+    replyCount: m.replyCount || 0,
+})),
         });
         io.to(roomName).emit('room:notification', {
             text: `${socket.user.username} joined #${roomName}`, type: 'join',
@@ -694,13 +701,21 @@ io.on('connection', async (socket) => {
         socket.emit('channel:history', {
             channelId,
             messages: history.reverse().map(m => ({
-                id: m._id.toString(), userId: m.userId.toString(),
-                username: m.username, role: m.role, text: m.text,
-                timestamp: m.createdAt, deleted: m.deleted,
-                pinned: pinnedIds.includes(m._id.toString()),
-                editedAt: m.editedAt,
-                editHistory: m.editHistory,
-            })),
+    id: m._id.toString(),
+    userId: m.userId.toString(),
+    username: m.username,
+    role: m.role,
+    text: m.text,
+    timestamp: m.createdAt,
+    deleted: m.deleted,
+    pinned: pinnedIds.includes(m._id.toString()),
+    editedAt: m.editedAt,
+    editHistory: m.editHistory,
+
+    // THREAD FIX
+    parentMessageId: m.parentMessageId,
+    replyCount: m.replyCount || 0,
+})),
             roomSettings: roomToChannel(room),
         });
     }, 'Failed to join channel.'));
