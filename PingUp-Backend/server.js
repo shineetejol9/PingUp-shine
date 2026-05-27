@@ -629,12 +629,14 @@ async function processCommand(socket, roomName, text) {
 io.use(socketAuthMiddleware);
 
 io.on('connection', async (socket) => {
-    const dbUser = await User.findById(socket.user.id);
-    if (!dbUser) return socket.disconnect();
-    if (dbUser.banned) {
-        socket.emit('kicked', { by: 'server (banned)' });
-        return socket.disconnect();
+    try{
+        const dbUser = await User.findById(socket.user.id);
+        if (!dbUser) return socket.disconnect();
+        if (dbUser.banned) {
+            socket.emit('kicked', { by: 'server (banned)' });
+            return socket.disconnect();
     }
+    
 
     // Sync role from DB
     socket.user.role = dbUser.role;
@@ -656,6 +658,12 @@ io.on('connection', async (socket) => {
     }
     socket.emit('structure:update', [...categoryMap.values()]);
     console.log(`[+] ${socket.user.username} (${socket.user.role})`);
+}catch(err){
+    console.error('[connection] setup error:', err);
+    socket.emit('error:general', 'Connection setup failed.');
+    socket.disconnect();
+
+}
 
     // ── Join channel (by name) ─────────────────────────────────────
     socket.on('room:join', safeSocketHandler(socket, 'room:join', async ({ roomName }) => {
@@ -929,7 +937,7 @@ io.on('connection', async (socket) => {
     }, 'Failed to delete message.'));
 
     // ── Edit Message ───────────────────────────────────────────────
-    socket.on('message:edit', async ({ channelId, roomName: rName, messageId, newText }) => {
+    socket.on('message:edit',safeSocketHandler(socket,'message:edit', async ({ channelId, roomName: rName, messageId, newText }) => {
         const trimmed = newText?.trim();
         if (!trimmed) return socket.emit('error:message', 'Cannot edit message to empty text.');
 
@@ -973,7 +981,7 @@ io.on('connection', async (socket) => {
 
         const bc = channelId ? io.to(channelId) : io.to(rName);
         bc.emit('message:edited', payload);
-    });
+    },'Failed to edit message.'));
 
     socket.on(
   'thread:get',
