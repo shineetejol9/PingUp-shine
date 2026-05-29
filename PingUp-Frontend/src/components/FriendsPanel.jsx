@@ -27,9 +27,6 @@ export default function FriendsPanel({ onlineUsers }) {
               onClick={() => setTab(t)}
             >
               {t.charAt(0).toUpperCase() + t.slice(1)}
-              {t === 'pending' && (
-                <span className="fp-pending-badge">1</span>
-              )}
             </button>
           ))}
         </div>
