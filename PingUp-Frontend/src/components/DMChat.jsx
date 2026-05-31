@@ -7,6 +7,10 @@ export default function DMChat({ currentUser, otherUser, token, socket, onClose 
   const [isTyping, setIsTyping]       = useState(false);
   const bottomRef                     = useRef(null);
   const typingTimeout                 = useRef(null);
+  const inputRef = useRef(null);
+  useEffect(() => {
+  setTimeout(() => inputRef.current?.focus(), 0);
+}, [otherUser?.id]);
 
   // Load history + join DM room
   useEffect(() => {
@@ -54,9 +58,10 @@ export default function DMChat({ currentUser, otherUser, token, socket, onClose 
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) return;
-    socket.emit('dm:send', { toUserId: otherUser.id, text: trimmed });
-    setText('');
-    clearTimeout(typingTimeout.current);
+socket.emit('dm:send', { toUserId: otherUser.id, text: trimmed });
+setText('');
+setTimeout(() => inputRef.current?.focus(), 0);
+clearTimeout(typingTimeout.current);
     socket.emit('dm:typing:stop', { toUserId: otherUser.id });
     setTyping(false);
   }
@@ -165,12 +170,12 @@ export default function DMChat({ currentUser, otherUser, token, socket, onClose 
 
       {/* Input */}
       <form className="dm-chat-input-row" onSubmit={handleSend}>
-        <input
-          value={text}
-          onChange={handleChange}
-          placeholder={`Message ${otherUser.username}…`}
-          autoFocus
-        />
+<input
+  ref={inputRef}
+  value={text}
+  onChange={handleChange}
+  placeholder={`Message ${otherUser.username}…`}
+/>
         <button type="submit" disabled={!text.trim()}>➤</button>
       </form>
     </div>
