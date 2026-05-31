@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 export default function MessageInput({
   onSend, onTypingStart, onTypingStop,
@@ -7,6 +7,7 @@ export default function MessageInput({
   const [text, setText]       = useState('');
   const typingRef             = useRef(false);
   const typingTimer           = useRef(null);
+  const inputRef = useRef(null);
 
   const isOwner    = currentUser?.role === 'owner';
   const isLocked   = roomSettings?.isLocked;
@@ -18,13 +19,19 @@ export default function MessageInput({
     if (isReadOnly) return '🔇 This channel is read-only';
     return `Message #${roomName}`;
   };
+  useEffect(() => {
+  if (!isDisabled) {
+    inputRef.current?.focus();
+  }
+}, [roomName, isDisabled]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!text.trim() || isDisabled) return;
       onSend(text.trim());
-      setText('');
+setText('');
+setTimeout(() => inputRef.current?.focus(), 0);
       if (typingRef.current) {
         onTypingStop();
         typingRef.current = false;
@@ -47,8 +54,9 @@ export default function MessageInput({
 
   return (
     <div className={`msg-input-wrap ${isDisabled ? 'msg-input-disabled' : ''}`}>
-      <textarea
-        className="msg-input"
+<textarea
+  ref={inputRef}
+  className="msg-input"
         placeholder={getPlaceholder()}
         value={text}
         onChange={handleChange}
@@ -62,7 +70,8 @@ export default function MessageInput({
         onClick={() => {
           if (!text.trim() || isDisabled) return;
           onSend(text.trim());
-          setText('');
+setText('');
+setTimeout(() => inputRef.current?.focus(), 0);
         }}
       >➤</button>
     </div>
