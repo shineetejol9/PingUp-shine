@@ -268,10 +268,11 @@ export default function Register({ onLogin, onSwitch }) {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="auth-eye"
-                style={{cursor : 'pointer'}}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
               >
-                {showPassword ? ( <FiEyeOff size={14} style={{ color: "var(--text-secondary)" }} />) : (
-                  <FiEye size={14} style={{ color: "var(--text-secondary)" }} />)}
+                {showPassword ? ( <FiEyeOff size={18} style={{ color: "var(--text-secondary)" }} />) : (
+                  <FiEye size={18} style={{ color: "var(--text-secondary)" }} />)}
               </button>
               </div>
 

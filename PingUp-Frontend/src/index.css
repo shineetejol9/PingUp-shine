@@ -4059,12 +4059,23 @@ body {
 }
 .auth-eye {
   position: absolute;
-  right: 12px;
-  top: 70%;
-  transform: translateY(-50%);
+  right: 2px;
+  bottom: 0px;
   background: none;
   border: none;
   cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-eye:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 0px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
 .auth-field label {
