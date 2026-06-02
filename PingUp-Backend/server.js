@@ -581,10 +581,14 @@ async function processCommand(socket, roomName, text) {
             const [targetName, newRole] = args;
             if (![ROLES.MODERATOR, ROLES.MEMBER].includes(newRole))
                 return err('Role must be: moderator or member');
-            const targetUser = await User.findOneAndUpdate(
-                { username: targetName }, { role: newRole }, { new: true }
-            );
+            // Lookup first so we can guard the target role before any write
+            // (prevents owners from demoting themselves or other owners —
+            //  matches the existing /kick, /reroll, /ban pattern).
+            const targetUser = await User.findOne({ username: targetName });
             if (!targetUser) return err('User not found.');
+            if (targetUser.role === ROLES.OWNER)
+                return err('Cannot change the admin role.');
+            await User.updateOne({ _id: targetUser._id }, { role: newRole });
             const ls = [...io.sockets.sockets.values()].find(s => s.user?.id === targetUser._id.toString());
             if (ls) { ls.user.role = newRole; ls.emit('role:updated', { role: newRole }); }
             await broadcastUserList();
