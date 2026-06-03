@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const bcrypt   = require('bcryptjs');
+const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
   username: {
@@ -11,13 +11,31 @@ const userSchema = new mongoose.Schema({
     enum: ['owner', 'moderator', 'member'],
     default: 'member',
   },
-  email:       { type: String, default: '' },
+  email: { 
+    type: String, 
+    default: '',
+    validate: {
+      validator: function(v) {
+        return v === '' || /^\S+@\S+\.\S+$/.test(v);
+      },
+      message: 'Please enter a valid email address.'
+    }
+  },
   displayName: { type: String, default: '' },
-  phone:       { type: String, default: '' },
-  online:      { type: Boolean, default: false },
-  socketId:    { type: String, default: null },
-  isFirst:     { type: Boolean, default: false }, // true = first ever user (owner)
-  loginCount:  { type: Number, default: 0 },
+  phone: { 
+    type: String, 
+    default: '',
+    validate: {
+      validator: function(v) {
+        return v === '' || /^\+?[0-9\-\s()]{7,20}$/.test(v);
+      },
+      message: 'Please enter a valid phone number.'
+    }
+  },
+  online: { type: Boolean, default: false },
+  socketId: { type: String, default: null },
+  isFirst: { type: Boolean, default: false }, // true = first ever user (owner)
+  loginCount: { type: Number, default: 0 },
 }, { timestamps: true });
 
 // Hash password before save
@@ -31,17 +49,29 @@ userSchema.methods.comparePassword = function (plain) {
   return bcrypt.compare(plain, this.password);
 };
 
-// Strip sensitive fields
+// Strip sensitive fields for public broadcast
 userSchema.methods.toSafeObject = function () {
   return {
-    id:          this._id.toString(),
-    username:    this.username,
+    id: this._id.toString(),
+    username: this.username,
     displayName: this.displayName || this.username,
-    role:        this.role,
-    email:       this.email,
-    phone:       this.phone,
-    online:      this.online,
-    isFirst:     this.isFirst,
+    role: this.role,
+    online: this.online,
+    isFirst: this.isFirst,
+  };
+};
+
+// Full profile for the authenticated user
+userSchema.methods.toPrivateProfile = function () {
+  return {
+    id: this._id.toString(),
+    username: this.username,
+    displayName: this.displayName || this.username,
+    role: this.role,
+    email: this.email,
+    phone: this.phone,
+    online: this.online,
+    isFirst: this.isFirst,
   };
 };
 
