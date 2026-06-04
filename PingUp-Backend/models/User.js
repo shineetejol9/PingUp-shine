@@ -1,18 +1,29 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
-const userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema(
+{
   username: {
-    type: String, required: true, unique: true, trim: true, lowercase: true,
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    lowercase: true,
   },
-  password: { type: String, required: true },
+  
+  password: {
+    type: String,
+    required: true,
+  },
+
   role: {
     type: String,
-    enum: ['owner', 'moderator', 'member'],
-    default: 'member',
+    enum: ["owner", "moderator", "member"],
+    default: "member",
   },
-  email: { 
-    type: String, 
+
+  email: {
+    type: String,
     default: '',
     validate: {
       validator: function(v) {
@@ -21,9 +32,14 @@ const userSchema = new mongoose.Schema({
       message: 'Please enter a valid email address.'
     }
   },
-  displayName: { type: String, default: '' },
-  phone: { 
-    type: String, 
+
+  displayName: {
+    type: String,
+    default: '',
+  },
+
+  phone: {
+    type: String,
     default: '',
     validate: {
       validator: function(v) {
@@ -32,15 +48,43 @@ const userSchema = new mongoose.Schema({
       message: 'Please enter a valid phone number.'
     }
   },
-  online: { type: Boolean, default: false },
-  socketId: { type: String, default: null },
-  isFirst: { type: Boolean, default: false }, // true = first ever user (owner)
-  loginCount: { type: Number, default: 0 },
-}, { timestamps: true });
+
+  online: {
+    type: Boolean,
+    default: false,
+  },
+
+  socketId: {
+    type: String,
+    default: null,
+  },
+
+  isFirst: {
+    type: Boolean,
+    default: false,
+  },
+
+  loginCount: {
+    type: Number,
+    default: 0,
+  },
+
+  refreshToken: {
+    type: String,
+    default: null,
+  },
+  banned: {
+  type: Boolean,
+  default: false,
+},
+},
+{
+  timestamps: true,
+});
 
 // Hash password before save
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
   this.password = await bcrypt.hash(this.password, 10);
   next();
 });
@@ -75,4 +119,4 @@ userSchema.methods.toPrivateProfile = function () {
   };
 };
 
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model("User", userSchema);

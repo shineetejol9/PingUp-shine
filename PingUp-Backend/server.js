@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -26,7 +27,7 @@ const User = require('./models/User');
 const Room = require('./models/Room');
 const Message = require('./models/Message');
 const DirectMessage = require('./models/DirectMessage');
-const { generateToken, socketAuthMiddleware, verifyToken } = require('./middleware/auth');
+const { generateToken, socketAuthMiddleware, verifyToken, generateRefreshToken } = require('./middleware/auth');
 const { ROLES, hasPermission } = require('./data/store'); // <-- IMPORTED WEIGHT SYSTEM
 
 const ServerSettings = require('./models/ServerSettings');
@@ -191,13 +192,20 @@ app.post('/api/register', async (req, res) => {
             email: email?.trim() || '',
         });
 
-        const token = generateToken(user);
+        const accessToken = generateToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        user.refreshToken = refreshToken;
+
+        await user.save();
+
         res.status(201).json({
-            token,
+            accessToken,
+            refreshToken,
             user: user.toPrivateProfile(),
             roleMessage: isFirst
-                ? '👑 You are the ADMIN — full system control granted.'
-                : '👋 Welcome! You joined as a member.',
+                  ? '👑 You are the ADMIN — full system control granted.'
+                  : '👋 Welcome! You joined as a member.',
         });
     } catch (err) {
         console.error(err);
@@ -216,11 +224,84 @@ app.post('/api/login', async (req, res) => {
             return res.status(403).json({ error: 'You have been banned.' });
 
         user.loginCount += 1;
+
+        const accessToken = generateToken(user);
+        const refreshToken = generateRefreshToken(user);
+        user.refreshToken = refreshToken;
+
         await user.save();
-        const token = generateToken(user);
-        res.json({ token, user: user.toPrivateProfile() });
+
+        res.json({
+            accessToken,
+            refreshToken,
+            user: user.toPrivateProfile()
+        });
     } catch (err) {
         res.status(500).json({ error: 'Server error.' });
+    }
+});
+
+// ─── Refresh Route ────────────────────────────────────────────────
+app.post('/api/refresh', async (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+        return res.status(401).json({
+            error: 'Refresh token required'
+        });
+    }
+
+    try {
+        const decoded = jwt.verify(
+            refreshToken,
+            process.env.REFRESH_SECRET
+        );
+
+        const user = await User.findById(decoded.id);
+
+        if (!user || user.refreshToken !== refreshToken) {
+            return res.status(403).json({
+                error: 'Invalid refresh token'
+            });
+        }
+
+        const accessToken = generateToken(user);
+
+        res.json({ accessToken });
+
+    } catch (err) {
+        res.status(403).json({
+            error: 'Invalid or expired refresh token'
+        });
+    }
+});
+
+// ─── Logout ────────────────────────────────────────────────
+app.post('/api/logout', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        
+        if (!refreshToken) {
+            return res.status(400).json({
+                error: 'Refresh token required'
+            });
+        }
+
+        const user = await User.findOne({ refreshToken });
+
+        if (user) {
+            user.refreshToken = null;
+            await user.save();
+        }
+
+        res.json({
+            message: 'Logged out successfully'
+        });
+
+    } catch (err) {
+        res.status(500).json({
+            error: 'Server error.'
+        });
     }
 });
 
