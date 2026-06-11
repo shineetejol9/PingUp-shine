@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+
 export default function MessageInput({
   onSend, onTypingStart, onTypingStop,
   roomName, roomSettings, currentUser,
@@ -8,6 +11,8 @@ export default function MessageInput({
   const [imagePreview, setImagePreview] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [imageError, setImageError] = useState(null);
+
   
   const typingRef = useRef(false);
   const typingTimer = useRef(null);
@@ -100,7 +105,14 @@ export default function MessageInput({
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    setImageError('Only JPEG, PNG, WebP, and GIF images are allowed.');
+    e.target.value = '';
+    return;
+  }
     if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageError(null);
     setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
   };
@@ -109,11 +121,16 @@ export default function MessageInput({
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImageFile(null);
     setImagePreview(null);
+    setImageError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
     <div className={`msg-input-wrap ${isDisabled ? 'msg-input-disabled' : ''}`}>
+     {imageError && (
+        <p style={{ color: 'red', fontSize: '12px', margin: '4px 8px 0' }}>{imageError}</p>
+      )}
+
       {imagePreview && (
         <div style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <img src={imagePreview} alt="preview" style={{ maxHeight: '80px', borderRadius: '8px' }} />
@@ -134,7 +151,7 @@ export default function MessageInput({
       
       <input
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         ref={fileInputRef}
         onChange={handleImageChange}
         style={{ display: 'none' }}
