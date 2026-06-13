@@ -34,22 +34,21 @@ const ServerSettings = require('./models/ServerSettings');
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : [
+        "http://localhost:5173",
+        "https://pingupsite.onrender.com"
+      ];
+
 const io = new Server(server, {
     cors: {
-        origin: [
-            "http://localhost:5173",
-            "https://pingupsite.onrender.com"
-        ],
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
         credentials: true
     }
 });
 io.adapter(createAdapter(pubClient, subClient));
-
-const allowedOrigins = [
-    "http://localhost:5173",
-    "https://pingupsite.onrender.com"
-];
 
 app.use(
     cors({
@@ -992,8 +991,8 @@ io.on('connection', async (socket) => {
                     id: msgId.toString(), userId: socket.user.id,
                     username: socket.user.username, role: freshUser.role,
                     text: trimmed, timestamp: new Date(), deleted: false, pinned: false,
-parentMessageId: parentMessageId || null,
-replyCount: 0, imageUrl: imageUrl || null,
+                    parentMessageId: parentMessageId || null,
+                    replyCount: 0,
                 };
 
                 io.to(resolvedRoom).emit('message:new', payload);
