@@ -1431,23 +1431,25 @@ io.on('connection', async (socket) => {
                     r => r.emoji === emoji
                 );
 
+                const userId = socket.user.id;
+
                 if (!reaction) {
 
                     message.reactions.push({
                         emoji,
-                        users: [socket.user.username]
+                        users: [userId]
                     });
 
                 } else {
 
-                    const alreadyReacted = reaction.users.includes(
-                        socket.user.username
-                    );
+                    const alreadyReacted = reaction.users
+                        .map(u => u.toString())
+                        .includes(userId);
 
                     if (alreadyReacted) {
 
                         reaction.users = reaction.users.filter(
-                            user => user !== socket.user.username
+                            u => u.toString() !== userId
                         );
 
                         // remove empty emoji group
@@ -1457,8 +1459,8 @@ io.on('connection', async (socket) => {
                             );
                         }
 
-                    } else {
-                        reaction.users.push(socket.user.username);
+                } else {
+                        reaction.users.push(userId);
                     }
                 }
 
