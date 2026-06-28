@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import './MessageInput.css';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
@@ -53,6 +54,7 @@ export default function MessageInput({
         }
         imageUrl = data.imageUrl;
       } catch (err) {
+        console.error(err);
         alert('Image upload failed');
         setUploading(false);
         return;
@@ -87,7 +89,7 @@ export default function MessageInput({
       if (uploading || (!text.trim() && !imageFile) || isDisabled) return;
       handleSend();
     }
-  }, [text, isDisabled, imageFile, uploading]);
+  }, [text, isDisabled, imageFile, uploading, handleSend]);
 
   const handleChange = useCallback((e) => {
     setText(e.target.value);
@@ -128,7 +130,7 @@ export default function MessageInput({
   return (
     <div className={`msg-input-wrap ${isDisabled ? 'msg-input-disabled' : ''}`}>
      {imageError && (
-        <p style={{ color: 'red', fontSize: '12px', margin: '4px 8px 0' }}>{imageError}</p>
+        <p className="image-error-text">{imageError}</p>
       )}
 
       {imagePreview && (
