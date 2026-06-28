@@ -18,7 +18,35 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
 });
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+/**
+ * Filter uploaded files based on MIME type and file extension.
+ * 
+ * Non-obvious decisions:
+ * 1. Double validation: checks both content-type (mimetype) and file extension to mitigate
+ *    malicious extension renaming bypasses (e.g. uploading .html disguised as .png).
+ * 2. Whitelist approach: restricts uploads strictly to safe image assets (JPEG, PNG, GIF, WEBP)
+ *    to prevent Cross-Site Scripting (XSS) via HTML uploads or Remote Code Execution (RCE) in public static directories.
+ */
+const fileFilter = (req, file, cb) => {
+  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+
+  const isMimeAllowed = allowedMimeTypes.includes(file.mimetype);
+  const isExtensionAllowed = allowedExtensions.includes(path.extname(file.originalname).toLowerCase());
+
+  if (isMimeAllowed && isExtensionAllowed) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WEBP images are allowed.'), false);
+  }
+};
+
+const upload = multer({ 
+  storage, 
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 const { pubClient, subClient, redisClient, redisReady } = require('./config/redis');
 const { messageQueue } = require('./services/messageQueue');
@@ -27,7 +55,7 @@ const User = require('./models/User');
 const Room = require('./models/Room');
 const Message = require('./models/Message');
 const DirectMessage = require('./models/DirectMessage');
-const { generateToken, socketAuthMiddleware, verifyToken, generateRefreshToken } = require('./middleware/auth');
+const { generateToken, socketAuthMiddleware, verifyToken, generateRefreshToken, verifyRefreshToken, requireAuth } = require('./middleware/auth');
 const { ROLES, hasPermission } = require('./data/store'); // <-- IMPORTED WEIGHT SYSTEM
 
 const ServerSettings = require('./models/ServerSettings');
@@ -60,11 +88,88 @@ app.use(express.json());
 // Serve uploaded images
 app.use('/uploads', express.static(uploadDir));
 
+/**
+ * Verifies that the file content starts with a valid image header (magic bytes).
+ * Supports JPEG, PNG, GIF, and WEBP.
+ */
+async function checkFileSignature(filePath) {
+  let fileHandle;
+  try {
+    fileHandle = await fs.promises.open(filePath, 'r');
+    const buffer = Buffer.alloc(12);
+    const { bytesRead } = await fileHandle.read(buffer, 0, 12, 0);
+
+    if (bytesRead < 4) {
+      return false;
+    }
+
+    // JPEG: FF D8 FF
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+      return true;
+    }
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (bytesRead >= 8 &&
+        buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47 &&
+        buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A) {
+      return true;
+    }
+
+    // GIF: GIF87a or GIF89a
+    // 47 49 46 38 37 61 or 47 49 46 38 39 61
+    if (bytesRead >= 6 &&
+        buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38 &&
+        (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61) {
+      return true;
+    }
+
+    // WEBP: RIFF at 0..3, and WEBP at 8..11
+    if (bytesRead >= 12 &&
+        buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+        buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error validating image file signature:', error);
+    return false;
+  } finally {
+    if (fileHandle) {
+      await fileHandle.close();
+    }
+  }
+}
+
 // Image upload route
-app.post('/api/upload', verifyToken, upload.single('image'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const imageUrl = `/uploads/${req.file.filename}`;
-  res.json({ imageUrl });
+app.post('/api/upload', requireAuth, (req, res, next) => {
+  upload.single('image')(req, res, async (err) => {
+    if (err instanceof multer.MulterError) {
+      // Multer specific errors (e.g. file size limit exceeded)
+      return res.status(400).json({ error: `Upload error: ${err.message}` });
+    } else if (err) {
+      // Custom fileFilter rejection error or other unknown errors
+      return res.status(400).json({ error: err.message });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Server-side magic-byte/content signature validation
+    const isValidSignature = await checkFileSignature(req.file.path);
+    if (!isValidSignature) {
+      try {
+        await fs.promises.unlink(req.file.path);
+      } catch (unlinkErr) {
+        console.error('Failed to delete invalid file:', unlinkErr);
+      }
+      return res.status(400).json({ error: 'Invalid file content. Uploaded file is not a valid image.' });
+    }
+
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
+  });
 });
 
 
@@ -92,6 +197,49 @@ async function broadcastUserList() {
     }
     const users = await User.find({ _id: { $in: onlineUserIds } });
     io.emit('users:update', users.map(u => u.toSafeObject()));
+}
+// Evict sockets from a channel room if the channel just became private
+// and they are no longer authorized.
+async function evictUnauthorizedSockets(room) {
+    if (!room.isPrivate) return; // only act when it IS now private
+
+    const roomIdStr = room._id.toString();
+
+    // ✅ Fetch from BOTH join paths — some sockets join by _id, others by name
+    const [socketsByIdArr, socketsByNameArr] = await Promise.all([
+        io.in(roomIdStr).fetchSockets(),
+        io.in(room.name).fetchSockets(),
+    ]);
+
+    // Deduplicate — a socket may appear in both sets
+    const seen = new Set();
+    const allSockets = [];
+    for (const s of [...socketsByIdArr, ...socketsByNameArr]) {
+        if (!seen.has(s.id)) {
+            seen.add(s.id);
+            allSockets.push(s);
+        }
+    }
+
+    const allowedSet = new Set(room.allowedUsers.map(id => id.toString()));
+
+    for (const s of allSockets) {
+        const user = s.data?.user ?? s.user;
+        const isOwnerOrAdmin =
+            user?.role === ROLES.OWNER || user?.role === ROLES.ADMIN;
+        if (isOwnerOrAdmin) continue; // owners/admins always keep access
+
+        const isAllowed = allowedSet.has(user?.id?.toString());
+        if (!isAllowed) {
+            // ✅ Leave BOTH room identifiers so no messages leak through
+            s.leave(roomIdStr);
+            s.leave(room.name);
+            s.emit('channel:kicked', {
+                channelId: roomIdStr,
+                reason: 'This channel has been made private.',
+            });
+        }
+    }
 }
 
 async function broadcastStructure() {
@@ -139,7 +287,12 @@ function roomToChannel(r) {
 
 // ─── Auth helper ──────────────────────────────────────────────────
 function authHeader(req, res) {
-    const token = req.headers.authorization?.split(' ')[1];
+    const authHeaderVal = req.headers.authorization;
+    if (!authHeaderVal || !authHeaderVal.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return null;
+    }
+    const token = authHeaderVal.slice('Bearer '.length).trim();
     if (!token) { res.status(401).json({ error: 'Unauthorized' }); return null; }
     const decoded = verifyToken(token);
     if (!decoded) { res.status(401).json({ error: 'Invalid token' }); return null; }
@@ -242,20 +395,25 @@ app.post('/api/login', async (req, res) => {
 
 // ─── Refresh Route ────────────────────────────────────────────────
 app.post('/api/refresh', async (req, res) => {
-    const { refreshToken } = req.body;
+    const refreshToken =
+        req.body && typeof req.body === 'object' ? req.body.refreshToken : undefined;
 
-    if (!refreshToken) {
-        return res.status(401).json({
-            error: 'Refresh token required'
+    // Strict validation: refreshToken must exist and be a primitive string.
+    // This blocks NoSQL Query Object injection (e.g. passing { $ne: null }).
+    if (!refreshToken || typeof refreshToken !== 'string') {
+        return res.status(400).json({
+            error: 'Invalid refresh token format.'
+        });
+    }
+
+    const decoded = verifyRefreshToken(refreshToken);
+    if (!decoded) {
+        return res.status(403).json({
+            error: 'Invalid or expired refresh token'
         });
     }
 
     try {
-        const decoded = jwt.verify(
-            refreshToken,
-            process.env.REFRESH_SECRET
-        );
-
         const user = await User.findById(decoded.id);
 
         if (!user || user.refreshToken !== refreshToken) {
@@ -265,12 +423,11 @@ app.post('/api/refresh', async (req, res) => {
         }
 
         const accessToken = generateToken(user);
-
         res.json({ accessToken });
 
     } catch (err) {
-        res.status(403).json({
-            error: 'Invalid or expired refresh token'
+        res.status(500).json({
+            error: 'Server error.'
         });
     }
 });
@@ -278,11 +435,14 @@ app.post('/api/refresh', async (req, res) => {
 // ─── Logout ────────────────────────────────────────────────
 app.post('/api/logout', async (req, res) => {
     try {
-        const { refreshToken } = req.body;
+        const refreshToken =
+            req.body && typeof req.body === 'object' ? req.body.refreshToken : undefined;
         
-        if (!refreshToken) {
+        // Strict validation: refreshToken must exist and be a primitive string.
+        // Bypassing this with a query object ({ $ne: null }) could match unintended users.
+        if (!refreshToken || typeof refreshToken !== 'string') {
             return res.status(400).json({
-                error: 'Refresh token required'
+                error: 'Invalid refresh token format.'
             });
         }
 
@@ -698,6 +858,7 @@ async function processCommand(socket, roomName, text) {
             if (!room) return err(`#${args[0]} not found.`);
             room.isPrivate = !room.isPrivate;
             await room.save();
+            await evictUnauthorizedSockets(room);
             await broadcastStructure();
             ok(`#${room.name} is now ${room.isPrivate ? 'private 👁️' : 'public 🌐'}.`);
             break;
@@ -816,6 +977,8 @@ io.on('connection', async (socket) => {
     // Sync role from DB
     socket.user.role = dbUser.role;
 
+    socket.data.user = socket.user;
+    
     await redisClient.sAdd(`user:sockets:${socket.user.id}`, socket.id);
     await redisClient.sAdd('users:online', socket.user.id);
     await User.findByIdAndUpdate(socket.user.id, { online: true, socketId: socket.id });
@@ -950,6 +1113,13 @@ io.on('connection', async (socket) => {
                 const trimmed = text?.trim();
                if (!trimmed && !imageUrl) return;
 
+               if (trimmed && trimmed.length > MAX_MESSAGE_LENGTH) {
+                   return socket.emit(
+                       'error:general',
+                       `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters.`
+                   );
+               }
+
                 let resolvedRoom = roomName;
                 let room = null;
                 if (channelId) {
@@ -991,8 +1161,8 @@ io.on('connection', async (socket) => {
                     id: msgId.toString(), userId: socket.user.id,
                     username: socket.user.username, role: freshUser.role,
                     text: trimmed, timestamp: new Date(), deleted: false, pinned: false,
-parentMessageId: parentMessageId || null,
-replyCount: 0, imageUrl: imageUrl || null,
+                    parentMessageId: parentMessageId || null,
+                    replyCount: 0,
                 };
 
                 io.to(resolvedRoom).emit('message:new', payload);
@@ -1102,6 +1272,7 @@ replyCount: 0, imageUrl: imageUrl || null,
         if (!room) return;
         room.isPrivate = !room.isPrivate;
         await room.save();
+        await evictUnauthorizedSockets(room);
         await broadcastStructure();
         socket.emit('command:response', {
             type: 'success',
@@ -1307,23 +1478,25 @@ replyCount: 0, imageUrl: imageUrl || null,
                     r => r.emoji === emoji
                 );
 
+                const userId = socket.user.id;
+
                 if (!reaction) {
 
                     message.reactions.push({
                         emoji,
-                        users: [socket.user.username]
+                        users: [userId]
                     });
 
                 } else {
 
-                    const alreadyReacted = reaction.users.includes(
-                        socket.user.username
-                    );
+                    const alreadyReacted = reaction.users
+                        .map(u => u.toString())
+                        .includes(userId);
 
                     if (alreadyReacted) {
 
                         reaction.users = reaction.users.filter(
-                            user => user !== socket.user.username
+                            u => u.toString() !== userId
                         );
 
                         // remove empty emoji group
@@ -1333,8 +1506,8 @@ replyCount: 0, imageUrl: imageUrl || null,
                             );
                         }
 
-                    } else {
-                        reaction.users.push(socket.user.username);
+                } else {
+                        reaction.users.push(userId);
                     }
                 }
 
@@ -1473,6 +1646,12 @@ replyCount: 0, imageUrl: imageUrl || null,
 
     socket.on('dm:send', safeSocketHandler(socket, 'dm:send', async ({ toUserId, text, clientId }, callback) => {
         try {
+            if (text && text.trim().length > MAX_MESSAGE_LENGTH) {
+                if (typeof callback === 'function') {
+                    return callback({ error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters.`, status: 'failed' });
+                }
+                return socket.emit('error:general', `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters.`);
+            }
             if (clientId) {
                 const existingMsg = await DirectMessage.findOne({ clientId });
 
@@ -1572,13 +1751,17 @@ replyCount: 0, imageUrl: imageUrl || null,
 });
 
 // ─── Connect & Start ──────────────────────────────────────────────
-mongoose.connect(process.env.MONGO_URI)
-    .then(async () => {
-        console.log('✅ MongoDB connected');
-        await redisReady;
-        await seedRooms();
-        server.listen(process.env.PORT || 3001, () =>
-            console.log(`🚀 Server on http://localhost:${process.env.PORT || 3001}`)
-        );
-    })
-    .catch(err => { console.error('MongoDB error:', err); process.exit(1); });
+if (require.main === module) {
+    mongoose.connect(process.env.MONGO_URI)
+        .then(async () => {
+            console.log('✅ MongoDB connected');
+            await redisReady;
+            await seedRooms();
+            server.listen(process.env.PORT || 3001, () =>
+                console.log(`🚀 Server on http://localhost:${process.env.PORT || 3001}`)
+            );
+        })
+        .catch(err => { console.error('MongoDB error:', err); process.exit(1); });
+}
+
+module.exports = { app, server };

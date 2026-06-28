@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from "react";
 
 const STATUS_COLORS = {
   online:  '#23a55a',
@@ -20,7 +20,6 @@ const CHANNEL_EMOJIS = ['💬','🌿','⚙️','📢','🎲','💡','📋','🔒
 
 export default function DMSidebar({
   currentUser,
-  onlineUsers,
   activeRoom,
   activeChannel,
   rooms,
@@ -44,10 +43,11 @@ export default function DMSidebar({
   const [showNewChannel,  setShowNewChannel]  = useState(null);
   const [catName,         setCatName]         = useState('');
   const [chForm,          setChForm]          = useState({ name: '', description: '', emoji: '💬' });
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const cancelBtnRef = useRef(null);
 
   const isOwner = currentUser?.role === 'owner';
-  const isMod   = ['owner', 'moderator'].includes(currentUser?.role);
-  const canCreateChannel = isOwner || allowUserChannelCreation;
+  const canCreateChannel = isOwner || !!allowUserChannelCreation;
 
   // ── Derive display list ─────────────────────────────────────────
   const displayCategories = (() => {
@@ -124,6 +124,22 @@ export default function DMSidebar({
       </div>
     );
   }
+useEffect(() => {
+  const handleEsc = (e) => {
+    if (e.key === "Escape") {
+      setShowLogoutModal(false);
+    }
+  };
+
+  if (showLogoutModal) {
+    window.addEventListener("keydown", handleEsc);
+    cancelBtnRef.current?.focus();
+  }
+
+  return () => {
+    window.removeEventListener("keydown", handleEsc);
+  };
+}, [showLogoutModal]);
 
   return (
     <div className="dm-sidebar">
@@ -283,6 +299,25 @@ export default function DMSidebar({
                         socket?.emit('channel:togglePrivate', { channelId: ch.id });
                       }}
                     >👁️</button>
+                    <select
+                      className="dm-ch-slowmode-select"
+                      value={ch.slowModeSeconds || 0}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        e.stopPropagation();
+
+                        socket?.emit('channel:setSlowMode', {
+                          channelId: ch.id,
+                          seconds: Number(e.target.value),
+                        });
+                      }}
+                    >
+                      <option value={0}>Off</option>
+                      <option value={5}>5s</option>
+                      <option value={10}>10s</option>
+                      <option value={30}>30s</option>
+                      <option value={60}>60s</option>
+                    </select>
                     <button
                       className="dm-ch-del-btn"
                       title="Delete channel"
@@ -420,11 +455,57 @@ export default function DMSidebar({
             <div className="dm-pm-divider" />
 
             <button
-              className="dm-pm-item danger"
-              onClick={() => { setShowProfileMenu(false); onLogout(); }}
-            >🚪 Log Out</button>
+              className="dm-pm-item danger" onClick={() => {
+                setShowLogoutModal(true);
+                }} >
+              🚪 Log Out
+            </button>
           </div>
         )}
+
+  {/*logout modal........... */}
+  {showLogoutModal && (
+  <div
+    className="logout-modal-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="logout-modal-title"
+    aria-describedby="logout-modal-description"
+    onClick={() => setShowLogoutModal(false)}
+  >
+    <div
+      className="logout-modal"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h3 id="logout-modal-title">Log Out?</h3>
+
+      <p id="logout-modal-description">
+        Are you sure you want to log out of your account?
+      </p>
+
+      <div className="logout-modal-actions">
+        <button
+          className="logout-cancel-btn"
+          ref={cancelBtnRef}
+          onClick={() => setShowLogoutModal(false)}
+        >
+         ❌ Cancel
+        </button>
+
+        <button
+          className="logout-confirm-btn"
+          onClick={() => {
+            setShowProfileMenu(false);
+            setShowLogoutModal(false);
+            onLogout();
+          }}
+        >
+         🚪 Log Out
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       </div>
     </div>
   );

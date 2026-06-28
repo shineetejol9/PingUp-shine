@@ -6,7 +6,7 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif
 
 export default function MessageInput({
   onSend, onTypingStart, onTypingStop,
-  roomName, roomSettings, currentUser,
+  roomName, roomSettings, currentUser, token,
 }) {
   const [text, setText] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
@@ -38,7 +38,7 @@ export default function MessageInput({
     }
   }, [roomName, isDisabled]);
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     let imageUrl = null;
     
     // Handle Image Upload First
@@ -47,7 +47,13 @@ export default function MessageInput({
       const formData = new FormData();
       formData.append('image', imageFile);
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const res = await fetch(getApiUrl('/api/upload'), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
         const data = await res.json();
         if (!res.ok || !data?.imageUrl) {
           throw new Error('Upload failed');
@@ -81,7 +87,7 @@ export default function MessageInput({
 
     // Restore focus after sending (auto-focus feature)
     setTimeout(() => inputRef.current?.focus(), 0);
-  };
+  }, [text, imageFile, onSend, onTypingStop]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -149,6 +155,7 @@ export default function MessageInput({
         onKeyDown={handleKeyDown}
         disabled={isDisabled}
         rows={1}
+        maxLength={2000}
       />
       
       <input
